@@ -33,7 +33,7 @@
         },
         {
             "name": "llvm",
-            "inherits": ["unity"],
+            "inherits": ["base"],
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang",
                 "CMAKE_CXX_COMPILER": "clang++"
