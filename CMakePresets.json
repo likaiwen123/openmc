@@ -8,7 +8,7 @@
                 "CMAKE_CXX_FLAGS": "$env{PRESET_CXX_FLAGS} $env{INTEL_CXX_FLAGS} $env{LLVM_CXX_FLAGS} $env{COMMON_CXX_FLAGS}"
             },
             "environment": {
-                "COMMON_CXX_FLAGS": "-Dgsl_CONFIG_CONTRACT_CHECKING_OFF -Wno-tautological-constant-compare -Wno-openmp-mapping"
+                "COMMON_CXX_FLAGS": "-Dgsl_CONFIG_CONTRACT_CHECKING_OFF"
             }
         },
         {
@@ -24,8 +24,8 @@
             "name": "intel",
             "inherits": ["unity"],
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "icx",
-                "CMAKE_CXX_COMPILER": "icpx"
+                "CMAKE_C_COMPILER": "mpicc",
+                "CMAKE_CXX_COMPILER": "mpiicpx"
             },
             "environment": {
                 "INTEL_CXX_FLAGS": "-fiopenmp"
@@ -47,7 +47,7 @@
             "inherits": ["intel"],
             "displayName": "Intel GPUs",
             "environment": {
-                "PRESET_CXX_FLAGS": "-fopenmp-targets=spir64 -mllvm -vpo-paropt-atomic-free-reduction=false"
+                "PRESET_CXX_FLAGS": "-fopenmp-targets=spir64 -mllvm -indvars-widen-indvars=false"
             }
         },
         {
