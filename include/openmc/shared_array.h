@@ -94,6 +94,7 @@ public:
     // well supported on device
     #pragma omp atomic capture //seq_cst
     idx = size_++;
+	//idx = __atomic_fetch_add(&size_, 1, __ATOMIC_RELAXED);
 
     // Check that we haven't written off the end of the array
     if (idx >= capacity_) {

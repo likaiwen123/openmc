@@ -868,54 +868,24 @@ void transport_event_based()
   // Figure out # of particles to initialize. If # of particles required per batch for this rank
   // is greater than what is allowed in-flight at once, then the particles will be refilled
   // on-the-fly via the revival event.
-  int64_t n_particles = std::min(simulation::work_per_rank, settings::max_particles_in_flight);
+  int n_particles = static_cast<int>(std::min(simulation::work_per_rank, settings::max_particles_in_flight));
 
   // Initialize in-flight particles
   process_init_events(n_particles);
 
   int event = 0;
+  int n_retired = 0;
 
   // Event-based transport loop
-  while (true) {
-    // Determine which event kernel has the longest queue
-    int64_t max = std::max({
-      simulation::calculate_fuel_xs_queue.size(),
-      simulation::calculate_nonfuel_xs_queue.size(),
-      simulation::advance_particle_queue.size(),
-      simulation::surface_crossing_queue.size(),
-      simulation::revival_queue.size(),
-      simulation::collision_queue.size()});
-
-    // Determine which event kernel has the longest queue (not including the fuel XS lookup queue)
-    int64_t max_other_than_fuel_xs = std::max({
-      simulation::calculate_nonfuel_xs_queue.size(),
-      simulation::advance_particle_queue.size(),
-      simulation::surface_crossing_queue.size(),
-      simulation::revival_queue.size(),
-      simulation::collision_queue.size()});
-
-    // Require the fuel XS lookup event to be more full to run as compared to other events
-    // This is motivated by this event having more benefit to running with more particles
-    // due to the particle energy sort.
-    if ( max < fuel_lookup_bias * max_other_than_fuel_xs )
-      max = max_other_than_fuel_xs;
-
-    // Execute event with the longest queue (or revival queue if the revival period is reached)
-    if (max == 0) {
-      break;
-    } else if (max == simulation::revival_queue.size() || ( simulation::revival_queue.size() > 0 && event % max_revival_period == 0 )) {
-      process_revival_events();
-    } else if (max == simulation::calculate_fuel_xs_queue.size()) {
-      process_calculate_xs_events_fuel();
-    } else if (max == simulation::calculate_nonfuel_xs_queue.size()) {
-      process_calculate_xs_events_nonfuel();
-    } else if (max == simulation::advance_particle_queue.size()) {
-      process_advance_particle_events(n_particles);
-    } else if (max == simulation::surface_crossing_queue.size()) {
-      process_surface_crossing_events();
-    } else if (max == simulation::collision_queue.size()) {
-      process_collision_events();
-    }
+  while (n_retired < simulation::work_per_rank) {
+    if (event % 5 == 0)
+    	process_calculate_xs_events_fuel(n_particles);
+    process_calculate_xs_events_nonfuel(n_particles);
+    process_advance_particle_events(n_particles);
+    process_surface_crossing_events(n_particles);
+    process_collision_events(n_particles);
+    if (event % 20 == 0 )
+      n_retired += process_revival_events(n_particles);
 
     event++;
 

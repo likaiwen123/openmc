@@ -622,7 +622,7 @@ void Mesh::bins_crossed(const Particle& p, FilterMatch& match) const
   // Find which mesh cells are traversed and the length of each traversal.
 
   while (true) {
-    if (std::equal(ijk0, ijk0 + n, ijk1)) {
+    if (equal(ijk0, ijk0 + n, ijk1)) {
       // The track ends in this cell.  Use the particle end location rather
       // than the mesh surface and stop iterating.
       double distance = (r1 - r0).norm();

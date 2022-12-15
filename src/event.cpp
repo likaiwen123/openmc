@@ -26,6 +26,8 @@ SharedArray<EventQueueItem> advance_particle_queue;
 SharedArray<EventQueueItem> surface_crossing_queue;
 SharedArray<EventQueueItem> collision_queue;
 SharedArray<EventQueueItem> revival_queue;
+EventQueueItem* queue;
+int q_len;
 
 int current_source_offset;
 
@@ -60,6 +62,30 @@ void sort_queue(SharedArray<EventQueueItem>& queue)
     #pragma omp target update to(queue.data_[:queue.size()])
     #endif
   }
+
+  simulation::time_event_sort.stop();
+}
+
+void sort_queueless()
+{
+  simulation::time_event_sort.start();
+
+  simulation::sort_counter++;
+
+  #ifdef CUDA_THRUST_SORT
+  device_sort_event_queue_item(simulation::queue, simulation::queue + simulation::q_len);
+  #elif SYCL_SORT
+  sort_queue_SYCL(simulation::queue, simulation::queue + simulation::q_len);
+  #else
+  // Transfer queue information to the host
+  #pragma omp target update from(simulation::queue[:simulation::q_len])
+
+  // Sort queue via OpenMP parallel sort implementation
+  quickSort_parallel(simulation::queue, simulation::q_len);
+
+  // Transfer queue information back to the device
+  #pragma omp target update to(simulation::queue[:simulation::q_len])
+  #endif
 
   simulation::time_event_sort.stop();
 }
@@ -102,6 +128,10 @@ void init_event_queues(int n_particles)
   simulation::revival_queue.allocate_on_device();
 
   #pragma omp target update to(simulation::work_per_rank)
+
+  simulation::queue = new EventQueueItem[n_particles];
+  #pragma omp target enter data map(to:simulation::queue[:n_particles])
+  simulation::q_len = n_particles;
 }
 
 void free_event_queues(void)
@@ -116,7 +146,7 @@ void free_event_queues(void)
   simulation::particles.clear();
 }
 
-void dispatch_xs_event(int buffer_idx)
+void dispatch_xs_event(int q_idx, int buffer_idx)
 {
   Particle& p = simulation::device_particles[buffer_idx];
 
@@ -126,13 +156,22 @@ void dispatch_xs_event(int buffer_idx)
   if (needs_lookup) {
     // If a lookup is needed, dispatch to fuel vs. non-fuel lookup queue
     if (!model::materials[p.material_].fissionable_) {
-      simulation::calculate_nonfuel_xs_queue.thread_safe_append({p.E_, p.material_, buffer_idx});
+		simulation::queue[q_idx].event = EVENT_XS_NONFUEL;
+		simulation::queue[q_idx].idx = buffer_idx;
+		simulation::queue[q_idx].material = p.material_;
+		simulation::queue[q_idx].E = p.E_;
     } else {
-      simulation::calculate_fuel_xs_queue.thread_safe_append({p.E_, buffer_idx});
+		simulation::queue[q_idx].event = EVENT_XS_FUEL;
+		simulation::queue[q_idx].idx = buffer_idx;
+		simulation::queue[q_idx].material = 0;
+		simulation::queue[q_idx].E = p.E_;
     }
   } else {
-    // Otherwise, particle can move directly to the advance particle queue
-    simulation::advance_particle_queue.thread_safe_append({p.E_, buffer_idx});
+	  // Otherwise, particle can move directly to the advance particle queue
+	  simulation::queue[q_idx].event = EVENT_ADVANCE;
+	  simulation::queue[q_idx].idx = buffer_idx;
+	  simulation::queue[q_idx].material = 0;
+	  simulation::queue[q_idx].E = p.E_;
   }
 }
 
@@ -148,7 +187,7 @@ void process_init_events(int n_particles)
   #pragma omp target teams distribute parallel for
   for (int i = 0; i < n_particles; i++) {
     initialize_history(simulation::device_particles[i], i + 1);
-    dispatch_xs_event(i);
+    dispatch_xs_event(i,i);
   }
 
   // The loop below can in theory be combined with the one above,
@@ -161,11 +200,6 @@ void process_init_events(int n_particles)
 
   // Write total weight to global variable
   simulation::total_weight = total_weight;
-
-  simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
-  simulation::calculate_nonfuel_xs_queue.sync_size_device_to_host();
-  simulation::advance_particle_queue.sync_size_device_to_host();
-
 }
 
 bool depletion_rx_check()
@@ -174,10 +208,10 @@ bool depletion_rx_check()
     (simulation::need_depletion_rx || simulation::depletion_scores_present);
 }
 
-void process_calculate_xs_events_nonfuel()
+void process_calculate_xs_events_nonfuel(int n_particles)
 {
   // Sort non fuel lookup queue by material and energy
-  sort_queue(simulation::calculate_nonfuel_xs_queue);
+  //sort_queue(simulation::calculate_nonfuel_xs_queue);
 
   simulation::time_event_calculate_xs.start();
   simulation::time_event_calculate_xs_nonfuel.start();
@@ -187,27 +221,30 @@ void process_calculate_xs_events_nonfuel()
   int offset = simulation::advance_particle_queue.size();;
 
   #pragma omp target teams distribute parallel for
-  for (int i = 0; i < simulation::calculate_nonfuel_xs_queue.size(); i++) {
-    int buffer_idx = simulation::calculate_nonfuel_xs_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
-    p.event_calculate_xs_execute(need_depletion_rx);
-    simulation::advance_particle_queue[offset + i] = simulation::calculate_nonfuel_xs_queue[i];
+  for (int i = 0; i < n_particles; i++) {
+	  if (simulation::queue[i].event == EVENT_XS_NONFUEL) {
+		  int buffer_idx = simulation::queue[i].idx;
+		  Particle& p = simulation::device_particles[buffer_idx];
+		  p.event_calculate_xs_execute(need_depletion_rx);
+		  simulation::queue[i].event = EVENT_ADVANCE;
+	  }
   }
 
   // After executing a calculate_xs event, particles will
   // always require an advance event. Therefore, we don't need to use
   // the protected enqueuing function.
-  simulation::advance_particle_queue.resize(offset + simulation::calculate_nonfuel_xs_queue.size());
-  simulation::calculate_nonfuel_xs_queue.resize(0);
+  //simulation::advance_particle_queue.resize(offset + simulation::calculate_nonfuel_xs_queue.size());
+  //simulation::calculate_nonfuel_xs_queue.resize(0);
 
   simulation::time_event_calculate_xs.stop();
   simulation::time_event_calculate_xs_nonfuel.stop();
 }
 
-void process_calculate_xs_events_fuel()
+void process_calculate_xs_events_fuel(int n_particles)
 {
   // Sort fuel lookup queue by energy
-  sort_queue(simulation::calculate_fuel_xs_queue);
+  //sort_queue(simulation::calculate_fuel_xs_queue);
+  sort_queueless();
 
   // The below line can be used to check if the queue has actually been sorted.
   // May be useful for debugging future on-device sorting strategies.
@@ -218,21 +255,21 @@ void process_calculate_xs_events_fuel()
 
   bool need_depletion_rx = depletion_rx_check();
 
-  int offset = simulation::advance_particle_queue.size();;
-
   #pragma omp target teams distribute parallel for
-  for (int i = 0; i < simulation::calculate_fuel_xs_queue.size(); i++) {
-    int buffer_idx = simulation::calculate_fuel_xs_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
-    p.event_calculate_xs_execute(need_depletion_rx);
-    simulation::advance_particle_queue[offset + i] = simulation::calculate_fuel_xs_queue[i];
+  for (int i = 0; i < n_particles; i++) {
+    if (simulation::queue[i].event == EVENT_XS_FUEL) {
+      int buffer_idx = simulation::queue[i].idx;
+      Particle& p = simulation::device_particles[buffer_idx];
+      p.event_calculate_xs_execute(need_depletion_rx);
+      simulation::queue[i].event = EVENT_ADVANCE;
+    }
   }
 
   // After executing a calculate_xs event, particles will
   // always require an advance event. Therefore, we don't need to use
   // the protected enqueuing function.
-  simulation::advance_particle_queue.resize(offset + simulation::calculate_fuel_xs_queue.size());
-  simulation::calculate_fuel_xs_queue.resize(0);
+  //simulation::advance_particle_queue.resize(offset + simulation::calculate_fuel_xs_queue.size());
+  //simulation::calculate_fuel_xs_queue.resize(0);
 
   simulation::time_event_calculate_xs.stop();
   simulation::time_event_calculate_xs_fuel.stop();
@@ -242,82 +279,92 @@ void process_advance_particle_events(int n_particles)
 {
   simulation::time_event_advance_particle.start();
 
+  if (!model::active_tracklength_tallies.empty()) {
+    bool need_depletion_rx = depletion_rx_check();
+	  #pragma omp target teams distribute parallel for
+	  for (int i = 0; i < n_particles; i++) {
+		if (simulation::queue[i].event == EVENT_ADVANCE) {
+		  int buffer_idx = simulation::queue[i].idx;
+		  Particle& p = simulation::device_particles[buffer_idx];
+		  p.event_advance();
+          p.event_tracklength_tally(need_depletion_rx);
+
+		  if (p.collision_distance_ > p.boundary_.distance) {
+			simulation::queue[i].event = EVENT_SURFACE;
+		  } else {
+			simulation::queue[i].event = EVENT_COLLISION;
+		  }
+		  simulation::queue[i].E = p.E_;
+		}
+	  }
+  } else {
   #pragma omp target teams distribute parallel for
-  for (int i = 0; i < simulation::advance_particle_queue.size(); i++) {
-    int buffer_idx = simulation::advance_particle_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
-    p.event_advance();
-    if (p.collision_distance_ > p.boundary_.distance) {
-      simulation::surface_crossing_queue.thread_safe_append({p.E_, buffer_idx});
-    } else {
-      simulation::collision_queue.thread_safe_append({p.E_, buffer_idx});
+  for (int i = 0; i < n_particles; i++) {
+    if (simulation::queue[i].event == EVENT_ADVANCE) {
+      int buffer_idx = simulation::queue[i].idx;
+      Particle& p = simulation::device_particles[buffer_idx];
+      p.event_advance();
+      if (p.collision_distance_ > p.boundary_.distance) {
+        simulation::queue[i].event = EVENT_SURFACE;
+      } else {
+        simulation::queue[i].event = EVENT_COLLISION;
+      }
+      simulation::queue[i].E = p.E_;
     }
   }
-  simulation::surface_crossing_queue.sync_size_device_to_host();
-  simulation::collision_queue.sync_size_device_to_host();
+  }
+
+  //simulation::surface_crossing_queue.sync_size_device_to_host();
+  //simulation::collision_queue.sync_size_device_to_host();
   
   simulation::time_event_advance_particle.stop();
   simulation::time_event_tally.start();
-  
-  // Perform tracklength tallying on device if active tallies are present
-  if (!model::active_tracklength_tallies.empty()) {
-    bool need_depletion_rx = depletion_rx_check();
-    #pragma omp target teams distribute parallel for
-    for (int i = 0; i < simulation::advance_particle_queue.size(); i++) {
-      int buffer_idx = simulation::advance_particle_queue[i].idx;
-      Particle& p = simulation::device_particles[buffer_idx];
-      p.event_tracklength_tally(need_depletion_rx);
-    }
-  }
-
-  simulation::advance_particle_queue.resize(0);
   simulation::time_event_tally.stop();
 }
 
-void process_surface_crossing_events()
+void process_surface_crossing_events(int n_particles)
 {
   simulation::time_event_surface_crossing.start();
 
-  #pragma omp target teams distribute parallel for
-  for (int i = 0; i < simulation::surface_crossing_queue.size(); i++) {
-    int buffer_idx = simulation::surface_crossing_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
-    p.event_cross_surface();
-    if (p.alive())
-      dispatch_xs_event(buffer_idx);
-    else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
+    #pragma omp target teams distribute parallel for
+  for (int i = 0; i < n_particles; i++) {
+    if (simulation::queue[i].event == EVENT_SURFACE) {
+      int buffer_idx = simulation::queue[i].idx;
+      Particle& p = simulation::device_particles[buffer_idx];
+      p.event_cross_surface();
+      if (p.alive())
+        dispatch_xs_event(i, buffer_idx);
+      else
+      {
+        simulation::queue[i].event = EVENT_REVIVAL;
+        simulation::queue[i].E = p.E_;
+      }
+    }
   }
-
-  simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
-  simulation::calculate_nonfuel_xs_queue.sync_size_device_to_host();
-  simulation::advance_particle_queue.sync_size_device_to_host();
-  simulation::revival_queue.sync_size_device_to_host();
-  simulation::surface_crossing_queue.resize(0);
 
   simulation::time_event_surface_crossing.stop();
 }
 
-void process_collision_events()
+void process_collision_events(int n_particles)
 {
   simulation::time_event_collision.start();
 
-  #pragma omp target teams distribute parallel for
-  for (int i = 0; i < simulation::collision_queue.size(); i++) {
-    int buffer_idx = simulation::collision_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
-    p.event_collide();
-    if (p.alive())
-      dispatch_xs_event(buffer_idx);
-    else
-      simulation::revival_queue.thread_safe_append({p.E_, buffer_idx});
-  }
 
-  simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
-  simulation::calculate_nonfuel_xs_queue.sync_size_device_to_host();
-  simulation::advance_particle_queue.sync_size_device_to_host();
-  simulation::revival_queue.sync_size_device_to_host();
-  simulation::collision_queue.resize(0);
+    #pragma omp target teams distribute parallel for
+  for (int i = 0; i < n_particles; i++) {
+    if (simulation::queue[i].event == EVENT_COLLISION) {
+      int buffer_idx = simulation::queue[i].idx;
+      Particle& p = simulation::device_particles[buffer_idx];
+      p.event_collide();
+      if (p.alive())
+        dispatch_xs_event(i, buffer_idx);
+      else
+      {
+        simulation::queue[i].event = EVENT_REVIVAL;
+        simulation::queue[i].E = p.E_;
+      }
+    }
+  }
 
   simulation::time_event_collision.stop();
 }
@@ -353,55 +400,61 @@ void process_death_events(int n_particles)
 
 }
 
-void process_revival_events()
+int process_revival_events(int n_particles)
 {
   simulation::time_event_revival.start();
 
   // Accumulator for particle weights from any sourced particles
   double extra_weight = 0;
 
-  #pragma omp target teams distribute parallel for reduction(+:extra_weight)
-  for (int i = 0; i < simulation::revival_queue.size(); i++) {
-    int buffer_idx = simulation::revival_queue[i].idx;
-    Particle& p = simulation::device_particles[buffer_idx];
+  int n_retired = 0;
 
-    // First, attempt to revive a secondary particle
-    p.event_revive_from_secondary();
+  #pragma omp target teams distribute parallel for reduction(+:extra_weight, n_retired)
+  for (int i = 0; i < n_particles; i++) {
+    if (simulation::queue[i].event == EVENT_REVIVAL) {
+      int buffer_idx = simulation::queue[i].idx;
+      Particle& p = simulation::device_particles[buffer_idx];
 
-    // If no secondary particle was found, attempt to source new particle
-    if (!p.alive()) {
+      // First, attempt to revive a secondary particle
+      p.event_revive_from_secondary();
 
-      // Before sourcing new particle, execute death event for old particle
-      p.event_death();
+      // If no secondary particle was found, attempt to source new particle
+      if (!p.alive()) {
 
-      // Atomically retrieve source offset for new particle
-      int source_offset_idx;
-      #pragma omp atomic capture //seq_cst
-      source_offset_idx = simulation::current_source_offset++;
+        // Before sourcing new particle, execute death event for old particle
+        p.event_death();
 
-      // Check that we are not going to run more particles than the user specified
-      if (source_offset_idx < simulation::work_per_rank) {
-        // If a valid particle is sourced, initialize it and accumulate its weight
-        initialize_history(p, source_offset_idx + 1);
-        extra_weight += p.wgt_;
+        n_retired++;
+
+        // Atomically retrieve source offset for new particle
+        int64_t source_offset_idx;
+        #pragma omp atomic capture //seq_cst
+        source_offset_idx = simulation::current_source_offset++;
+
+        // Check that we are not going to run more particles than the user specified
+        if (source_offset_idx < simulation::work_per_rank) {
+          // If a valid particle is sourced, initialize it and accumulate its weight
+          initialize_history(p, source_offset_idx + 1);
+          extra_weight += p.wgt_;
+        }
       }
+      // If particle has either been revived or a new particle has been sourced,
+      // then dispatch particle to appropriate queue. Otherwise, if particle is
+      // dead, then it will not be queued anywhere.
+      if (p.alive())
+        dispatch_xs_event(i,buffer_idx);
+      else
+        simulation::queue[i].event = EVENT_DEATH;
     }
-    // If particle has either been revived or a new particle has been sourced,
-    // then dispatch particle to appropriate queue. Otherwise, if particle is
-    // dead, then it will not be queued anywhere.
-    if (p.alive())
-      dispatch_xs_event(buffer_idx);
   }
 
-  simulation::revival_queue.resize(0);
-  simulation::calculate_fuel_xs_queue.sync_size_device_to_host();
-  simulation::calculate_nonfuel_xs_queue.sync_size_device_to_host();
-  simulation::advance_particle_queue.sync_size_device_to_host();
 
   // Add any newly sourced particle weights to global variable
   simulation::total_weight += extra_weight;
 
   simulation::time_event_revival.stop();
+
+  return n_retired;
 }
 
 } // namespace openmc

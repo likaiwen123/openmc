@@ -7,6 +7,14 @@
 #include "openmc/shared_array.h"
 
 namespace openmc {
+#define EVENT_XS_FUEL 0
+	#define EVENT_XS_NONFUEL 1
+	#define EVENT_ADVANCE 2
+	#define EVENT_SURFACE 3
+	#define EVENT_COLLISION 4
+	#define EVENT_REVIVAL 5
+	#define EVENT_DEATH 6
+
 
 //==============================================================================
 // Structs
@@ -22,6 +30,7 @@ namespace openmc {
 // result in any benefits if not enough particles are present for them to achieve
 // consistent locality improvements. 
 struct EventQueueItem{
+  int event;
   int idx;      //!< particle index in event-based particle buffer
   int material; //!< material that particle is in
   float E;      //!< particle energy
@@ -84,6 +93,8 @@ extern SharedArray<EventQueueItem> advance_particle_queue;
 extern SharedArray<EventQueueItem> surface_crossing_queue;
 extern SharedArray<EventQueueItem> collision_queue;
 extern SharedArray<EventQueueItem> revival_queue;
+extern EventQueueItem* queue;
+extern int q_len;
 
 extern int current_source_offset;
 #pragma omp end declare target
@@ -118,18 +129,18 @@ void process_init_events(int n_particles);
 //
 //! \param queue A reference to the desired XS lookup queue
 //void process_calculate_xs_events(SharedArray<EventQueueItem>& queue);
-void process_calculate_xs_events_fuel();
-void process_calculate_xs_events_nonfuel();
+void process_calculate_xs_events_fuel(int n_particles);
+void process_calculate_xs_events_nonfuel(int n_particles);
 
 //! Execute the advance particle event for all particles in this event's buffer
 void process_advance_particle_events(int n_particles);
 bool depletion_rx_check();
 
 //! Execute the surface crossing event for all particles in this event's buffer
-void process_surface_crossing_events();
+void process_surface_crossing_events(int n_particles);
 
 //! Execute the collision event for all particles in this event's buffer
-void process_collision_events();
+void process_collision_events(int n_particles);
 
 //! Execute the death event for all particles
 //
@@ -137,7 +148,7 @@ void process_collision_events();
 void process_death_events(int n_particles);
 
 //! Execute the revival event for all particles in this event's buffer
-void process_revival_events();
+int process_revival_events(int n_particles);
 
 #ifdef CUDA_THRUST_SORT
 //! Sort a queue on-device using CUDA Thrust
