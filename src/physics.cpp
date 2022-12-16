@@ -871,6 +871,7 @@ void sab_scatter(int i_nuclide, int i_sab, Particle& p)
   p.u() = rotate_angle(p.u(), p.mu_, nullptr, p.current_seed());
 }
 
+/*
 Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
   Direction v_neut, double xs_eff, double kT, uint64_t* seed)
 {
@@ -1018,6 +1019,160 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
       }
     }
     } // case RVS, DBRC
+  } // switch (sampling_method)
+
+  UNREACHABLE();
+}
+*/
+Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
+  Direction v_neut, double xs_eff, double kT, uint64_t* seed)
+{
+  // check if nuclide is a resonant scatterer
+  ResScatMethod sampling_method;
+  if (nuc.resonant_) {
+
+    // sampling method to use
+    sampling_method = settings::res_scat_method;
+
+    // upper resonance scattering energy bound (target is at rest above this E)
+    if (E > settings::res_scat_energy_max) {
+      return {};
+
+      // lower resonance scattering energy bound (should be no resonances below)
+    } else if (E < settings::res_scat_energy_min) {
+      sampling_method = ResScatMethod::cxs;
+    }
+
+    // otherwise, use free gas model
+  } else {
+    if (E >= FREE_GAS_THRESHOLD * kT && nuc.awr_ > 1.0) {
+      return {};
+    } else {
+      sampling_method = ResScatMethod::cxs;
+    }
+  }
+
+  // use appropriate target velocity sampling method
+  switch (sampling_method) {
+  case ResScatMethod::cxs:
+
+    // sample target velocity with the constant cross section (cxs) approx.
+    return sample_cxs_target_velocity(nuc.awr_, E, u, kT, seed);
+
+  case ResScatMethod::dbrc:
+  case ResScatMethod::rvs: {
+    double E_red = std::sqrt(nuc.awr_ * E / kT);
+    double E_low = std::pow(std::max(0.0, E_red - 4.0), 2) * kT / nuc.awr_;
+    double E_up = (E_red + 4.0) * (E_red + 4.0) * kT / nuc.awr_;
+
+    // find lower and upper energy bound indices
+    // lower index
+    int i_E_low;
+    if (E_low < nuc.energy_0K_.front()) {
+      i_E_low = 0;
+    } else if (E_low > nuc.energy_0K_.back()) {
+      i_E_low = nuc.energy_0K_.size() - 2;
+    } else {
+      i_E_low =
+        lower_bound_index(nuc.energy_0K_.begin(), nuc.energy_0K_.end(), E_low);
+    }
+
+    // upper index
+    int i_E_up;
+    if (E_up < nuc.energy_0K_.front()) {
+      i_E_up = 0;
+    } else if (E_up > nuc.energy_0K_.back()) {
+      i_E_up = nuc.energy_0K_.size() - 2;
+    } else {
+      i_E_up =
+        lower_bound_index(nuc.energy_0K_.begin(), nuc.energy_0K_.end(), E_up);
+    }
+
+    if (i_E_up == i_E_low) {
+      // Handle degenerate case -- if the upper/lower bounds occur for the same
+      // index, then using cxs is probably a good approximation
+      return sample_cxs_target_velocity(nuc.awr_, E, u, kT, seed);
+    }
+
+    if (sampling_method == ResScatMethod::dbrc) {
+      // interpolate xs since we're not exactly at the energy indices
+      double xs_low = nuc.elastic_0K_[i_E_low];
+      double m = (nuc.elastic_0K_[i_E_low + 1] - xs_low) /
+                 (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
+      xs_low += m * (E_low - nuc.energy_0K_[i_E_low]);
+      double xs_up = nuc.elastic_0K_[i_E_up];
+      m = (nuc.elastic_0K_[i_E_up + 1] - xs_up) /
+          (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
+      xs_up += m * (E_up - nuc.energy_0K_[i_E_up]);
+
+      // get max 0K xs value over range of practical relative energies
+      double xs_max = *std::max_element(
+        &nuc.elastic_0K_[i_E_low + 1], &nuc.elastic_0K_[i_E_up + 1]);
+      xs_max = std::max({xs_low, xs_max, xs_up});
+
+      while (true) {
+        double E_rel;
+        Direction v_target;
+        while (true) {
+          // sample target velocity with the constant cross section (cxs)
+          // approx.
+          v_target = sample_cxs_target_velocity(nuc.awr_, E, u, kT, seed);
+          Direction v_rel = v_neut - v_target;
+          E_rel = v_rel.dot(v_rel);
+          if (E_rel < E_up)
+            break;
+        }
+
+        // perform Doppler broadening rejection correction (dbrc)
+        double xs_0K = nuc.elastic_xs_0K(E_rel);
+        double R = xs_0K / xs_max;
+        if (prn(seed) < R)
+          return v_target;
+      }
+
+    } else if (sampling_method == ResScatMethod::rvs) {
+      // interpolate xs CDF since we're not exactly at the energy indices
+      // cdf value at lower bound attainable energy
+      double cdf_low = 0.0;
+      if (E_low > nuc.energy_0K_.front()) {
+        double m = (nuc.xs_cdf_[i_E_low + 1] - nuc.xs_cdf_[i_E_low]) /
+                   (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
+        cdf_low = nuc.xs_cdf_[i_E_low] + m * (E_low - nuc.energy_0K_[i_E_low]);
+      }
+
+      // cdf value at upper bound attainable energy
+      double m = (nuc.xs_cdf_[i_E_up + 1] - nuc.xs_cdf_[i_E_up]) /
+                 (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
+      double cdf_up = nuc.xs_cdf_[i_E_up] + m * (E_up - nuc.energy_0K_[i_E_up]);
+
+      while (true) {
+        // directly sample Maxwellian
+        double E_t = -kT * std::log(prn(seed));
+
+        // sample a relative energy using the xs cdf
+        double cdf_rel = cdf_low + prn(seed) * (cdf_up - cdf_low);
+        int i_E_rel = lower_bound_index(nuc.xs_cdf_.begin() + i_E_low,
+          nuc.xs_cdf_.begin() + i_E_up + 2, cdf_rel);
+        double E_rel = nuc.energy_0K_[i_E_low + i_E_rel];
+        double m = (nuc.xs_cdf_[i_E_low + i_E_rel + 1] -
+                     nuc.xs_cdf_[i_E_low + i_E_rel]) /
+                   (nuc.energy_0K_[i_E_low + i_E_rel + 1] -
+                     nuc.energy_0K_[i_E_low + i_E_rel]);
+        E_rel += (cdf_rel - nuc.xs_cdf_[i_E_low + i_E_rel]) / m;
+
+        // perform rejection sampling on cosine between
+        // neutron and target velocities
+        double mu = (E_t + nuc.awr_ * (E - E_rel)) /
+                    (2.0 * std::sqrt(nuc.awr_ * E * E_t));
+
+        if (std::abs(mu) < 1.0) {
+          // set and accept target velocity
+          E_t /= nuc.awr_;
+          return std::sqrt(E_t) * rotate_angle(u, mu, nullptr, seed);
+        }
+      }
+    }
+  } // case RVS, DBRC
   } // switch (sampling_method)
 
   UNREACHABLE();

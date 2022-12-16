@@ -128,6 +128,22 @@
             }
         },
         {
+            "name": "llvm_mi250x_mpi",
+            "inherits": ["llvm"],
+            "displayName": "LLVM Clang MI100",
+            "environment": {
+                "PRESET_CXX_FLAGS": "-fopenmp-targets=amdgcn-amd-amdhsa -Xopenmp-target=amdgcn-amd-amdhsa -march=gfx90a -I/opt/cray/pe/mpich/8.1.17/ofi/amd/5.0/include -L/opt/cray/pe/mpich/8.1.17/ofi/amd/5.0/lib -lmpi -L/opt/cray/pe/mpich/8.1.17/gtl/lib -lmpi_gtl_hsa"
+            }
+        },
+        {
+            "name": "llvm_mi250x_mpi_assumes",
+            "inherits": ["llvm"],
+            "displayName": "LLVM Clang MI100",
+            "environment": {
+                "PRESET_CXX_FLAGS": "-fopenmp-targets=amdgcn-amd-amdhsa -Xopenmp-target=amdgcn-amd-amdhsa -march=gfx90a -I/opt/cray/pe/mpich/8.1.17/ofi/amd/5.0/include -L/opt/cray/pe/mpich/8.1.17/ofi/amd/5.0/lib -lmpi -L/opt/cray/pe/mpich/8.1.17/gtl/lib -lmpi_gtl_hsa -fopenmp-assume-no-nested-parallelism -fopenmp-assume-no-thread-state"
+            }
+        },
+        {
             "name": "llvm_mi100_mpi",
             "inherits": ["llvm"],
             "displayName": "LLVM Clang MI100",
