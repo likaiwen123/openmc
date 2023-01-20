@@ -870,7 +870,7 @@ void sab_scatter(int i_nuclide, int i_sab, Particle& p)
 }
 
 Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
-  Direction v_neut, double xs_eff, double kT, uint64_t* seed)
+   Direction v_neut, double xs_eff, double kT, uint64_t* seed)
 {
   // check if nuclide is a resonant scatterer
   ResScatMethod sampling_method;
@@ -883,12 +883,12 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
     if (E > settings::res_scat_energy_max) {
       return {};
 
-    // lower resonance scattering energy bound (should be no resonances below)
+      // lower resonance scattering energy bound (should be no resonances below)
     } else if (E < settings::res_scat_energy_min) {
       sampling_method = ResScatMethod::cxs;
     }
 
-  // otherwise, use free gas model
+    // otherwise, use free gas model
   } else {
     if (E >= FREE_GAS_THRESHOLD * kT && nuc.awr_ > 1.0) {
       return {};
@@ -908,16 +908,15 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
   case ResScatMethod::rvs: {
     double E_red = std::sqrt(nuc.awr_ * E / kT);
     double E_low = std::pow(std::max(0.0, E_red - 4.0), 2) * kT / nuc.awr_;
-    double E_up = (E_red + 4.0)*(E_red + 4.0) * kT / nuc.awr_;
+    double E_up = (E_red + 4.0) * (E_red + 4.0) * kT / nuc.awr_;
 
     // find lower and upper energy bound indices
     // lower index
     int i_E_low;
-    size_t n = nuc.energy_0K_.size();
-    if (E_low < nuc.energy_0K_[0]) {
+    if (E_low < nuc.energy_0K_.front()) {
       i_E_low = 0;
-    } else if (E_low > nuc.energy_0K_[n-1]) {
-      i_E_low = n - 2;
+    } else if (E_low > nuc.energy_0K_.back()) {
+      i_E_low = nuc.energy_0K_.size() - 2;
     } else {
       i_E_low =
         lower_bound_index(nuc.energy_0K_.begin(), nuc.energy_0K_.end(), E_low);
@@ -925,10 +924,10 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
 
     // upper index
     int i_E_up;
-    if (E_up < nuc.energy_0K_[0]) {
+    if (E_up < nuc.energy_0K_.front()) {
       i_E_up = 0;
-    } else if (E_up > nuc.energy_0K_[n-1]) {
-      i_E_up = n - 2;
+    } else if (E_up > nuc.energy_0K_.back()) {
+      i_E_up = nuc.energy_0K_.size() - 2;
     } else {
       i_E_up =
         lower_bound_index(nuc.energy_0K_.begin(), nuc.energy_0K_.end(), E_up);
@@ -943,70 +942,73 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
     if (sampling_method == ResScatMethod::dbrc) {
       // interpolate xs since we're not exactly at the energy indices
       double xs_low = nuc.elastic_0K_[i_E_low];
-      double m = (nuc.elastic_0K_[i_E_low + 1] - xs_low)
-        / (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
+      double m = (nuc.elastic_0K_[i_E_low + 1] - xs_low) /
+                 (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
       xs_low += m * (E_low - nuc.energy_0K_[i_E_low]);
       double xs_up = nuc.elastic_0K_[i_E_up];
-      m = (nuc.elastic_0K_[i_E_up + 1] - xs_up)
-        / (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
+      m = (nuc.elastic_0K_[i_E_up + 1] - xs_up) /
+          (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
       xs_up += m * (E_up - nuc.energy_0K_[i_E_up]);
 
       // get max 0K xs value over range of practical relative energies
-      double xs_max = *std::max_element(&nuc.elastic_0K_[i_E_low + 1],
-        &nuc.elastic_0K_[i_E_up + 1]);
+      double xs_max = *std::max_element(
+        &nuc.elastic_0K_[i_E_low + 1], &nuc.elastic_0K_[i_E_up + 1]);
       xs_max = std::max({xs_low, xs_max, xs_up});
 
       while (true) {
         double E_rel;
         Direction v_target;
         while (true) {
-          // sample target velocity with the constant cross section (cxs) approx.
+          // sample target velocity with the constant cross section (cxs)
+          // approx.
           v_target = sample_cxs_target_velocity(nuc.awr_, E, u, kT, seed);
           Direction v_rel = v_neut - v_target;
           E_rel = v_rel.dot(v_rel);
-          if (E_rel < E_up) break;
+          if (E_rel < E_up)
+            break;
         }
 
         // perform Doppler broadening rejection correction (dbrc)
         double xs_0K = nuc.elastic_xs_0K(E_rel);
         double R = xs_0K / xs_max;
-        if (prn(seed) < R) return v_target;
+        if (prn(seed) < R)
+          return v_target;
       }
 
     } else if (sampling_method == ResScatMethod::rvs) {
       // interpolate xs CDF since we're not exactly at the energy indices
       // cdf value at lower bound attainable energy
-      double m = (nuc.xs_cdf_[i_E_low] - nuc.xs_cdf_[i_E_low - 1])
-        / (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
-      double cdf_low = nuc.xs_cdf_[i_E_low - 1]
-            + m * (E_low - nuc.energy_0K_[i_E_low]);
-      if (E_low <= nuc.energy_0K_[0]) cdf_low = 0.0;
+      double cdf_low = 0.0;
+      if (E_low > nuc.energy_0K_.front()) {
+        double m = (nuc.xs_cdf_[i_E_low + 1] - nuc.xs_cdf_[i_E_low]) /
+                   (nuc.energy_0K_[i_E_low + 1] - nuc.energy_0K_[i_E_low]);
+        cdf_low = nuc.xs_cdf_[i_E_low] + m * (E_low - nuc.energy_0K_[i_E_low]);
+      }
 
       // cdf value at upper bound attainable energy
-      m = (nuc.xs_cdf_[i_E_up] - nuc.xs_cdf_[i_E_up - 1])
-        / (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
-      double cdf_up = nuc.xs_cdf_[i_E_up - 1]
-        + m*(E_up - nuc.energy_0K_[i_E_up]);
+      double m = (nuc.xs_cdf_[i_E_up + 1] - nuc.xs_cdf_[i_E_up]) /
+                 (nuc.energy_0K_[i_E_up + 1] - nuc.energy_0K_[i_E_up]);
+      double cdf_up = nuc.xs_cdf_[i_E_up] + m * (E_up - nuc.energy_0K_[i_E_up]);
 
       while (true) {
         // directly sample Maxwellian
         double E_t = -kT * std::log(prn(seed));
 
         // sample a relative energy using the xs cdf
-        double cdf_rel = cdf_low + prn(seed)*(cdf_up - cdf_low);
-        int i_E_rel = lower_bound_index(&nuc.xs_cdf_[i_E_low-1],
-          &nuc.xs_cdf_[i_E_up+1], cdf_rel);
+        double cdf_rel = cdf_low + prn(seed) * (cdf_up - cdf_low);
+        int i_E_rel = lower_bound_index(nuc.xs_cdf_.begin() + i_E_low,
+          nuc.xs_cdf_.begin() + i_E_up + 2, cdf_rel);
         double E_rel = nuc.energy_0K_[i_E_low + i_E_rel];
-        double m = (nuc.xs_cdf_[i_E_low + i_E_rel]
-              - nuc.xs_cdf_[i_E_low + i_E_rel - 1])
-              / (nuc.energy_0K_[i_E_low + i_E_rel + 1]
-              -  nuc.energy_0K_[i_E_low + i_E_rel]);
-        E_rel += (cdf_rel - nuc.xs_cdf_[i_E_low + i_E_rel - 1]) / m;
+        double m = (nuc.xs_cdf_[i_E_low + i_E_rel + 1] -
+                     nuc.xs_cdf_[i_E_low + i_E_rel]) /
+                   (nuc.energy_0K_[i_E_low + i_E_rel + 1] -
+                     nuc.energy_0K_[i_E_low + i_E_rel]);
+        E_rel += (cdf_rel - nuc.xs_cdf_[i_E_low + i_E_rel]) / m;
 
         // perform rejection sampling on cosine between
         // neutron and target velocities
         double mu = (E_t + nuc.awr_ * (E - E_rel)) /
-          (2.0 * std::sqrt(nuc.awr_ * E * E_t));
+                    (2.0 * std::sqrt(nuc.awr_ * E * E_t));
 
         if (std::abs(mu) < 1.0) {
           // set and accept target velocity
@@ -1015,7 +1017,7 @@ Direction sample_target_velocity(const Nuclide& nuc, double E, Direction u,
         }
       }
     }
-    } // case RVS, DBRC
+  } // case RVS, DBRC
   } // switch (sampling_method)
 
   UNREACHABLE();
