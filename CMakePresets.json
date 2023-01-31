@@ -24,8 +24,8 @@
             "name": "intel",
             "inherits": ["unity"],
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "icx",
-                "CMAKE_CXX_COMPILER": "icpx"
+                "CMAKE_C_COMPILER": "mpicc",
+                "CMAKE_CXX_COMPILER": "mpic++"
             },
             "environment": {
                 "INTEL_CXX_FLAGS": "-fiopenmp"
@@ -47,7 +47,7 @@
             "inherits": ["intel"],
             "displayName": "Intel GPUs",
             "environment": {
-                "PRESET_CXX_FLAGS": "-fopenmp-targets=spir64 -mllvm -vpo-paropt-atomic-free-reduction=false"
+                "PRESET_CXX_FLAGS": "-fopenmp-targets=spir64 -mllvm -indvars-widen-indvars=false"
             }
         },
         {
