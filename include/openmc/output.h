@@ -48,7 +48,6 @@ void print_generation();
 
 //! Display time elapsed for various stages of a run
 void print_runtime();
-void print_runtime_stats();
 
 //! Display results for global tallies including k-effective estimators
 void print_results();

@@ -195,7 +195,6 @@ int openmc_simulation_finalize()
     if (settings::verbosity >= 6) print_runtime();
     if (settings::verbosity >= 4) print_results();
   }
-  print_runtime_stats();
   if (settings::check_overlaps) print_overlap_check();
 
   //free(simulation::device_particles);

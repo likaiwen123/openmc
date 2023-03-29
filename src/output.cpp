@@ -386,29 +386,6 @@ void show_time(const char* label, double secs, int indent_level=0)
     "", 2*indent_level, label, width, secs);
 }
 
-void show_time_stats(const char* label, double secs, int indent_level=0)
-{
-	double min = 0;
-	double max = 0;
-	double sum = 0;
-	double average = 0;
-
-  #ifdef OPENMC_MPI
-  MPI_Reduce(&secs, &sum, 1, MPI_DOUBLE, MPI_SUM, 0, mpi::intracomm);
-  MPI_Reduce(&secs, &min, 1, MPI_DOUBLE, MPI_MIN, 0, mpi::intracomm);
-  MPI_Reduce(&secs, &max, 1, MPI_DOUBLE, MPI_MAX, 0, mpi::intracomm);
-  #else
-  min = secs;
-  max = secs;
-  sum = secs;
-  #endif
-  average = sum / mpi::n_procs;
-  int width = 33 - indent_level*2;
-  if (mpi::master) {
-    fmt::print("{0}\t{1:e}\t{2:e}\t{3:e}\n", label, min, max, average);
-  }
-}
-
 void show_rate(const char* label, double particles_per_sec)
 {
   fmt::print(" {:<33} = {:.6} particles/second\n", label, particles_per_sec);
@@ -441,54 +418,6 @@ bool was_device_used()
     return false;
     #endif
   }
-}
-
-void print_runtime_stats()
-{
-  using namespace simulation;
-
-  // display header block
-  if (mpi::master) {
-  header("Runtime Information", 6);
-  }
-
-  // display time elapsed for various sections
-  show_time_stats("Total time for initialization", time_initialize.elapsed());
-  show_time_stats("Reading cross sections", time_read_xs.elapsed(), 1);
-  show_time_stats("Total time in simulation", time_inactive.elapsed() +
-    time_active.elapsed());
-  show_time_stats("Time in transport only", time_transport.elapsed(), 1);
-  if (settings::event_based) {
-    show_time_stats("Particle initialization", time_event_init.elapsed(), 2);
-    show_time_stats("XS lookups (Total)", time_event_calculate_xs.elapsed(), 2);
-    show_time_stats("XS lookups (Fuel)", time_event_calculate_xs_fuel.elapsed(), 2);
-    show_time_stats("XS lookups (Non-Fuel)", time_event_calculate_xs_nonfuel.elapsed(), 2);
-    show_time_stats("XS queue sorting", time_event_sort.elapsed(), 2);
-    show_time_stats("Avg. time per sort", time_event_sort.elapsed() / sort_counter, 2);
-    show_time_stats("Advancing", time_event_advance_particle.elapsed(), 2);
-    show_time_stats("Tallying", time_event_tally.elapsed(), 2);
-    show_time_stats("Surface crossings", time_event_surface_crossing.elapsed(), 2);
-    show_time_stats("Collisions", time_event_collision.elapsed(), 2);
-    show_time_stats("Particle death", time_event_death.elapsed(), 2);
-    show_time_stats("Revival", time_event_revival.elapsed(), 2);
-  }
-  if (settings::run_mode == RunMode::EIGENVALUE) {
-    show_time_stats("Time in inactive batches", time_inactive.elapsed(), 1);
-  }
-  show_time_stats("Time in active batches", time_active.elapsed(), 1);
-  if (settings::run_mode == RunMode::EIGENVALUE) {
-    show_time_stats("Time synchronizing fission bank", time_bank.elapsed(), 1);
-    show_time_stats("Sampling source sites", time_bank_sample.elapsed(), 2);
-    show_time_stats("SEND/RECV source sites", time_bank_sendrecv.elapsed(), 2);
-  }
-  show_time_stats("Time accumulating tallies", time_accumulate_tallies.elapsed(), 1);
-  show_time_stats("Time writing statepoints", time_statepoint.elapsed(), 1);
-  show_time_stats("Total time for finalization", time_finalize.elapsed());
-  show_time_stats("Total time elapsed", time_total.elapsed());
-  
-  #ifdef OPENMC_MPI
-  MPI_Barrier( mpi::intracomm );
-  #endif
 }
 
 void print_runtime()
