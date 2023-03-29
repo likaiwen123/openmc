@@ -99,7 +99,7 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
       */
 
       // TODO: The below is the workaround for the workaround
-      //#pragma omp atomic read
+      #pragma omp atomic read
       i_cell = neighbor_list->list_[i];
 
       // If the neighbor list item is -1, this means the end of the list has been found
