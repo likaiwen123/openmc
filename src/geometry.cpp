@@ -84,6 +84,8 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
     for (int64_t i = 0; i < NEIGHBOR_SIZE ; i++) {
 
       // Perform an atomic read of the neighbor list
+      // NOTE: As the read is of a 32-bit integer, the read is guaranteed to be atomic
+      // on Intel, AMD, and NVIDIA systems, so no 
 
       // TODO: The below is the correct version.
       // Note: Gives a runtime JIT compiler error (can't find the flush function or something)
@@ -99,7 +101,7 @@ find_cell_inner(Particle& p, const NeighborList* neighbor_list)
       */
 
       // TODO: The below is the workaround for the workaround
-      #pragma omp atomic read
+      //#pragma omp atomic read
       i_cell = neighbor_list->list_[i];
 
       // If the neighbor list item is -1, this means the end of the list has been found
