@@ -199,14 +199,14 @@ std::string Filter::type() const
   switch(type_){
     case FilterType::AzimuthalFilter          : return "azimuthal";
     case FilterType::CellFilter               : return "cell";
-    case FilterType::CellInstanceFilter       : return "cellborn";
-    case FilterType::CellbornFilter           : return "cellfrom";
-    case FilterType::CellFromFilter           : return "cellinstance";
+    case FilterType::CellInstanceFilter       : return "cellinstance";
+    case FilterType::CellbornFilter           : return "cellborn";
+    case FilterType::CellFromFilter           : return "cellfrom";
     case FilterType::DelayedGroupFilter       : return "delayedgroup";
     case FilterType::DistribcellFilter        : return "distribcell";
-    case FilterType::EnergyFilter             : return "energyfunction";
-    case FilterType::EnergyoutFilter          : return "energy";
-    case FilterType::EnergyFunctionFilter     : return "energyout";
+    case FilterType::EnergyFilter             : return "energy";
+    case FilterType::EnergyoutFilter          : return "energyout";
+    case FilterType::EnergyFunctionFilter     : return "energyfunction";
     case FilterType::LegendreFilter           : return "legendre";
     case FilterType::MaterialFilter           : return "material";
     case FilterType::MeshFilter               : return "mesh";
@@ -214,9 +214,9 @@ std::string Filter::type() const
     case FilterType::MuFilter                 : return "mu";
     case FilterType::ParticleFilter           : return "particle";
     case FilterType::PolarFilter              : return "polar";
-    case FilterType::SphericalHarmonicsFilter : return "surface";
+    case FilterType::SphericalHarmonicsFilter : return "sphericalharmonics";
     case FilterType::SpatialLegendreFilter    : return "spatiallegendre";
-    case FilterType::SurfaceFilter            : return "sphericalharmonics";
+    case FilterType::SurfaceFilter            : return "surface";
     case FilterType::UniverseFilter           : return "universe";
     case FilterType::ZernikeFilter            : return "zernike";
     case FilterType::ZernikeRadialFilter      : return "zernikeradial";
