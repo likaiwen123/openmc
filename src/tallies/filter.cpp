@@ -202,8 +202,8 @@ std::string Filter::type() const
     case FilterType::CellInstanceFilter       : return "cellborn";
     case FilterType::CellbornFilter           : return "cellfrom";
     case FilterType::CellFromFilter           : return "cellinstance";
-    case FilterType::DelayedGroupFilter       : return "distribcell";
-    case FilterType::DistribcellFilter        : return "delayedgroup";
+    case FilterType::DelayedGroupFilter       : return "delayedgroup";
+    case FilterType::DistribcellFilter        : return "distribcell";
     case FilterType::EnergyFilter             : return "energyfunction";
     case FilterType::EnergyoutFilter          : return "energy";
     case FilterType::EnergyFunctionFilter     : return "energyout";
