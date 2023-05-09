@@ -22,6 +22,7 @@
 #include "openmc/urr.h"
 #include "openmc/vector.h"
 #include "openmc/wmp.h"
+#include "openmc/material.h"
 
 namespace openmc {
 
