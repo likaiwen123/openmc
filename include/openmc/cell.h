@@ -87,7 +87,7 @@ public:
 
   BoundingBox bounding_box() const;
 
-  UniversePartitioner* partitioner_{NULL};
+  UniversePartitioner* partitioner_{nullptr};
 };
 
 //==============================================================================
@@ -232,7 +232,7 @@ public:
   //! rotation angles about the x-, y- and z- axes in degrees, these values are
   //! also present at the end of the vector, making it of length 12.
   //std::vector<double> rotation_;
-  //double* device_rotation_{NULL};
+  //double* device_rotation_{nullptr};
   double rotation_[12];
   int rotation_length_{0};
 
@@ -373,9 +373,9 @@ public:
   //! `surfs_.back()`.  Otherwise, `partitions_[i]` gives cells sandwiched
   //! between `surfs_[i-1]` and `surfs_[i]`.
   std::vector<std::vector<int32_t>> partitions_;
-  int32_t* device_partitions_{NULL};
-  int32_t* device_partitions_offsets_{NULL};
-  int32_t* device_partitions_lengths_{NULL};
+  int32_t* device_partitions_{nullptr};
+  int32_t* device_partitions_offsets_{nullptr};
+  int32_t* device_partitions_lengths_{nullptr};
 };
 
 
