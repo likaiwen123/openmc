@@ -114,10 +114,10 @@ public:
   //! container's size and capacity to 0.
   void clear()
   {
-    if( data_ != NULL )
+    if( data_ != nullptr )
     {
       delete[] data_;
-      data_ = NULL;
+      data_ = nullptr;
     }
     size_ = 0;
     capacity_ = 0;
@@ -194,8 +194,8 @@ public:
 
   //private: 
 
-  T* data_ {NULL}; //!< An RAII handle to the elements
-  T* device_data_ {NULL}; //!< Device pointer for interop with device libraries
+  T* data_ {nullptr}; //!< An RAII handle to the elements
+  T* device_data_ {nullptr}; //!< Device pointer for interop with device libraries
   int size_ {0}; //!< The current number of elements 
   int capacity_ {0}; //!< The total space allocated for elements
 }; 

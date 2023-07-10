@@ -240,7 +240,7 @@ void Universe::allocate_and_copy_to_device()
 {
   cells_.copy_to_device();
 
-  if(partitioner_ != NULL)
+  if(partitioner_ != nullptr)
   {
     // Map partitioner object
     #pragma omp target enter data map(to: partitioner_[:1])
